@@ -34,7 +34,7 @@ pdf_table_extractor/
 
 **1. Клонирование и установка зависимостей:**
 ```bash
-git clone <твой-репозиторий>
+git clone https://github.com/morikonon/pdf-vision-parser.git
 cd pdf_table_extractor
 python3 -m venv venv
 source venv/bin/activate  # Для Windows: venv\Scripts\activate
