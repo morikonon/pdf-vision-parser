@@ -7,7 +7,9 @@ __pycache__/
 *.pyc
 *.pyo
 
-input/
-output/
+input/*
+!input/.gitkeep
+output/*
+!output/.gitkeep
 
 .DS_Store
