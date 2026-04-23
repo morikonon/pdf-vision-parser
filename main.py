@@ -1,10 +1,12 @@
-"""
+""""
 Главный модуль (Оркестратор).
 Связывает все компоненты системы воедино: чтение PDF -> рендер -> запрос к LLM -> валидация -> сохранение.
 Поддерживает многопоточную обработку для ускорения пайплайна.
 """
 
 import os
+import glob 
+import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.config import OPENAI_API_KEY, DPI, MAX_WORKERS
 from src.logger import get_logger
@@ -16,6 +18,58 @@ import fitz
 # Инициализируем глобальные объекты логгера и API-клиента
 logger = get_logger()
 client = VLMClient(OPENAI_API_KEY)
+
+def merge_to_excel(output_dir: str, final_name: str = "Financial_Report_Parsed.xlsx"):
+    """Собирает все сгенерированные CSV в один красивый Excel-файл с вкладками."""
+    csv_files = glob.glob(os.path.join(output_dir, "page_*.csv"))
+    if not csv_files:
+        logger.warning("Нет файлов для склейки в Excel.")
+        return
+
+    # Сортируем файлы по номеру страницы, чтобы вкладки шли по порядку
+    csv_files.sort(key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0]))
+
+    final_file_path = os.path.join(output_dir, final_name)
+    
+    # Открываем "писатель" Excel
+    with pd.ExcelWriter(final_file_path, engine='openpyxl') as writer:
+        for file in csv_files:
+            try:
+                df = pd.read_csv(file, sep=';')
+                # Название вкладки будет "Page 10", "Page 12" и т.д.
+                sheet_name = os.path.basename(file).replace('.csv', '').replace('_', ' ').title()
+                
+                # Записываем датафрейм на отдельный лист
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            except Exception as e:
+                logger.error(f"Ошибка при добавлении {file} в Excel: {e}")
+
+    logger.info(f"УСПЕХ: Все таблицы собраны в один Excel-файл -> {final_file_path}")
+
+
+def merge_csv_files(output_dir: str, final_name: str = "merged_result.csv"): 
+    """Собирает все сгенерированные CSV в один итоговый файл."""
+    csv_files = glob.glob(os.path.join(output_dir, "page_*.csv"))
+    if not csv_files:
+        logger.warning("Нет файлов для склейки.")
+        return
+
+    df_list = []
+    for file in csv_files:
+        try:
+            df = pd.read_csv(file, sep=';')
+            # Добавляем колумн с указанием страницы
+            df["source_page"] = os.path.basename(file)
+            df_list.append(df)
+        except Exception as e:
+            logger.error(f"Ошибка чтения {file} при склейке: {e}")
+    
+    if df_list:
+        final_df = pd.concat(df_list, ignore_index=True)
+        final_df_path = os.path.join(output_dir, final_name)
+        final_df.to_csv(final_df_path, index=False, sep=';')
+        logger.info(f"Успех: {len(csv_files)} таблиц склеены в один файл -> {final_name}")
+
 
 def process_page(pdf_path: str, page_num: int, output_dir: str) -> bool:
     """
@@ -69,6 +123,10 @@ def main(pdf_name: str):
 
     # Считаем количество успешно сохраненных таблиц (где функция вернула True)
     logger.info(f"Done! Extracted {sum(results)} tables.")
+
+    # Склеиваем все в конце
+    merge_csv_files(output_dir)
+    merge_to_excel(output_dir)
 
 if __name__ == "__main__":
     # Запуск пайплайна (название файла должно лежать в папке input/)
